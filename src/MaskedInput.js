@@ -1,7 +1,4 @@
 import InputMask from 'inputmask-core';
-import ffpoly from './ff-polyfill'; // Firefox Polyfill for focus events
-
-ffpoly();
 
 export default {
   name: 'MaskedInput',
@@ -16,9 +13,7 @@ export default {
       },
       on: {
         keydown: this.keyDown,
-        keypress: this.keyPress,
-        keyup: this.keyUp,
-        textInput: this.textInput,
+        input: this.input,
         mouseup: this.mouseUp,
         focusout: this.focusOut,
         cut: this.cut,
@@ -31,7 +26,7 @@ export default {
   data: () => ({
     marginLeft: 0,
     maskCore: null,
-    updateAfterAll: false,
+    keyCode: null,
   }),
 
   props: {
@@ -102,10 +97,7 @@ export default {
           });
         }
         [...this.$refs.input.value].reduce((memo, item) => this.maskCore.input(item), null);
-        this.maskCore.setSelection({
-          start: 0,
-          end: 0,
-        });
+        this.setNativeSelection();
         if (this.$refs.input.value === '') {
           this.$emit('input', '', '');
         } else {
@@ -127,6 +119,7 @@ export default {
         return;
       }
       this.setNativeSelection();
+      this.keyCode = e.keyCode;
       switch (e.keyCode) {
         // backspace
         case 8:
@@ -191,58 +184,36 @@ export default {
           this.updateToCoreState();
           break;
 
-        // delete
-        case 46:
-          e.preventDefault();
-          if (this.$refs.input.selectionStart === this.$refs.input.selectionEnd) {
-            this.maskCore.setValue('');
-            this.maskCore.setSelection({
-              start: 0,
-              end: 0,
-            });
-            this.$refs.input.selectionStart = this.maskCore.selection.start;
-            this.$refs.input.selectionEnd = this.maskCore.selection.start;
-          } else {
-            this.maskCore.backspace();
-          }
-          this.updateToCoreState();
-          break;
-
         default:
           break;
       }
     },
 
-    keyPress(e) { // works only on Desktop
-      if (e.ctrlKey) return; // Fix FF copy/paste issue
-      // IE & FF are not trigger textInput event, so we have to force it
-      /* eslint-disable */
-      const isIE = /*@cc_on!@*/false || !!document.documentMode; //by http://stackoverflow.com/questions/9847580/how-to-detect-safari-chrome-ie-firefox-and-opera-browser
-      /* eslint-enable */
-      const isFirefox = typeof InstallTrigger !== 'undefined';
-      if (isIE || isFirefox) {
-        e.preventDefault();
-        e.data = e.key;
-        this.textInput(e);
-      }
-    },
-
-    textInput(e) {
+    input(e) {
       if (e.preventDefault) e.preventDefault();
-      if (this.maskCore.input(e.data)) {
-        this.updateAfterAll = true;
+      const text = e.target.value;
+      const selection = {
+        start: this.$refs.input.selectionStart,
+        end: this.$refs.input.selectionEnd,
+      };
+      if (this.keyCode === 46 && selection.start !== selection.end) {
+        this.maskCore.backspace();
+      } else if (text) {
+        this.maskCore.setValue('');
+        this.maskCore.setSelection({
+          start: 0,
+          end: 0,
+        });
+        [...text]
+          .reduce((memo, item) => this.maskCore.input(item), null);
+        if (this.keyCode === 46) {
+          this.maskCore.setSelection(selection);
+          this.$refs.input.selectionStart = this.maskCore.selection.start;
+          this.$refs.input.selectionEnd = this.maskCore.selection.start;
+        }
       }
       this.updateToCoreState();
     },
-
-    keyUp(e) {
-      if (e.keyCode === 9) { // Preven change selection for Tab in
-        return;
-      }
-      this.updateToCoreState();
-      this.updateAfterAll = false;
-    },
-
 
     cut(e) {
       e.preventDefault();
@@ -259,7 +230,7 @@ export default {
 
     paste(e) {
       e.preventDefault();
-      const text = e.clipboardData.getData('text');
+      const text = (e.clipboardData || window.clipboardData).getData('text');
       [...text].reduce((memo, item) => this.maskCore.input(item), null);
       this.updateToCoreState();
     },
